@@ -89,8 +89,8 @@ func send_event(event:StringName) -> void:
 		return
 		
 	_run_change(PendingEvent.new(event))
-		
-		
+
+
 ## Sets a property that can be used in expression guards. The property will be available as a global variable
 ## with the same name. E.g. if you set the property "foo" to 42, you can use the expression "foo == 42" in
 ## an expression guard.
@@ -102,10 +102,11 @@ func set_expression_property(name:StringName, value) -> void:
 	if not is_instance_valid(_state):
 		push_error("State chart has no root state. Ignoring call to `set_expression_property`.")
 		return
-		
-	_run_change(PendingPropertyChange.new(name, value))
-		
-		
+	
+	_expression_properties[name] = value
+	_run_change(PendingPropertyChange.new())
+
+
 func _run_change(change:PendingChange):
 	if _locked_down:
 		# we are currently running changes, so we need to 
@@ -135,11 +136,9 @@ func _do_run_change(change:PendingChange):
 		_state._process_transitions(change.event_name, false)
 	
 	elif change is PendingPropertyChange:
-		_expression_properties[change.property] = change.value
 		# run a property change event through the state chart to run automatic transitions
 		_state._process_transitions(&"", true)
 
-		
 
 ## Allows states to queue a transition for running. This will eventually run the transition
 ## once all currently running transitions have finished. States should call this method
@@ -217,10 +216,3 @@ class PendingEvent:
 	
 class PendingPropertyChange:
 	extends PendingChange
-	var property:StringName
-	var value:Variant
-	
-	func _init(property:StringName, value:Variant):
-		self.property = property
-		self.value = value
-		
