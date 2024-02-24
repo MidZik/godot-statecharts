@@ -32,8 +32,8 @@ var _state:State = null
 var _expression_properties:Dictionary = {
 }
 
-## A list of pending changes
-var _queued_changes:Array[PendingChange] = []
+## A list of pending events
+var _queued_events:Array[String] = []
 
 ## Flag indicating if the state chart is currently processing. 
 ## Until a change is fully processed, no further changes can
@@ -42,6 +42,8 @@ var _locked_down:bool = false
 
 var _queued_transitions:Array[Dictionary] = []
 var _transitions_processing_active:bool = false
+
+var _pending_property_change:bool = false
 
 var _debugger_remote:DebuggerRemote = null
 
@@ -87,8 +89,9 @@ func send_event(event:StringName) -> void:
 	if not is_instance_valid(_state):
 		push_error("State chart has no root state. Ignoring call to `send_event`.")
 		return
-		
-	_run_change(PendingEvent.new(event))
+	
+	_queued_events.append(event)
+	_run_changes()
 
 
 ## Sets a property that can be used in expression guards. The property will be available as a global variable
@@ -104,40 +107,29 @@ func set_expression_property(name:StringName, value) -> void:
 		return
 	
 	_expression_properties[name] = value
-	_run_change(PendingPropertyChange.new())
+	_pending_property_change = true
+	_run_changes()
 
 
-func _run_change(change:PendingChange):
+func _run_changes():
 	if _locked_down:
-		# we are currently running changes, so we need to 
-		# queue this.
-		_queued_changes.append(change)
 		return
-		
+	
 	# enable the reentrance lock
 	_locked_down = true
 	
-	_do_run_change(change)
-	
-	# if other changed have accumulated while this change was processing
-	# process them in order now
-	while _queued_changes.size() > 0:
-		var next_change:PendingChange = _queued_changes.pop_front()
-		_do_run_change(next_change)
+	while _queued_events or _pending_property_change:
+		while _queued_events:
+			var event:String = _queued_events.pop_front()
+			event_received.emit(event)
+			_pending_property_change = false
+			_state._process_transitions(event, false)
 		
-	_locked_down = false
-
-
-## Actually runs a change through the state chart.
-func _do_run_change(change:PendingChange):
-	if change is PendingEvent:
-		# emit the received signal
-		event_received.emit(change.event_name)
-		_state._process_transitions(change.event_name, false)
+		if _pending_property_change:
+			_pending_property_change = false
+			_state._process_transitions(&"", true)
 	
-	elif change is PendingPropertyChange:
-		# run a property change event through the state chart to run automatic transitions
-		_state._process_transitions(&"", true)
+	_locked_down = false
 
 
 ## Allows states to queue a transition for running. This will eventually run the transition
@@ -202,17 +194,3 @@ func _get_configuration_warnings() -> PackedStringArray:
 		if not child is State:
 			warnings.append("StateChart's child must be a State")
 	return warnings
-
-
-class PendingChange:
-	extends RefCounted
-
-class PendingEvent:
-	extends PendingChange
-	var event_name:StringName
-	
-	func _init(event_name:StringName):
-		self.event_name = event_name
-	
-class PendingPropertyChange:
-	extends PendingChange
